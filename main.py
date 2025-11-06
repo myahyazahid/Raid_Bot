@@ -19,7 +19,8 @@ TOPIC_ID_2 = int(os.getenv("TOPIC_ID_2"))  # Thread sesi 2
 TOPIC_ID_3 = int(os.getenv("TOPIC_ID_3"))  # Thread sesi 3
 
 bot = TeleBot(BOT_TOKEN)
-telethon_client = TelegramClient("session", API_ID, API_HASH)
+telethon_client = TelegramClient("session", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+
 
 # ==========================
 # 🧠 FUNGSI CEK REAKSI
@@ -124,3 +125,4 @@ def sesi3():
 # ==========================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
+
