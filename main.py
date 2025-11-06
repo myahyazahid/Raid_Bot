@@ -22,7 +22,7 @@ TOPIC_ID_3 = int(os.environ.get("TOPIC_ID_3", 0))
 telethon_client = TelegramClient('session', API_ID, API_HASH)
 bot = TeleBot(BOT_TOKEN, parse_mode="Markdown")
 
-# --- Fungsi utama: cek siapa yang belum kasih reaction ---
+# --- Fungsi utama: cek1 siapa yang belum kasih reaction ---
 async def check_reactions(chat_id, topic_id, start_hour, end_hour, test_mode=False):
     now = datetime.now(timezone.utc) + timedelta(hours=7)  # WIB
 
@@ -106,3 +106,4 @@ def sesi3_test():
 # --- Jalankan Flask ---
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
