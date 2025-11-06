@@ -1,107 +1,110 @@
 import os
 import base64
 import asyncio
-from datetime import datetime, timezone
-from telethon import TelegramClient, events
+import re
+from datetime import datetime, timezone, timedelta
+from telethon import TelegramClient
+from telebot import TeleBot
 from flask import Flask
 
 # ========================
-# 🔧 KONFIGURASI DASAR
+# 🔧 KONFIGURASI
 # ========================
-API_ID = int(os.getenv("API_ID", "39993754"))
-API_HASH = os.getenv("API_HASH", "0eea9b16eb5dd10d958f815f58a0e2e5")
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = int(os.getenv("CHAT_ID", "-100XXXXXXXXXX"))  # Ganti dengan ID grup kamu
-TOPIC_ID_1 = int(os.getenv("TOPIC_ID_1", "0"))  # Thread ID untuk sesi 1
+CHAT_ID = int(os.getenv("CHAT_ID"))
+TOPIC_ID_1 = int(os.getenv("TOPIC_ID_1"))
 
-# ========================
-# 🔐 RESTORE SESSION
-# ========================
+# Inisialisasi bot
+bot = TeleBot(BOT_TOKEN)
+app = Flask(__name__)
+
+# Dekode session Telethon
 if os.getenv("SESSION_DATA"):
-    print("🔑 Dekode session Telethon dari ENV...")
     with open("session.session", "wb") as f:
         f.write(base64.b64decode(os.getenv("SESSION_DATA")))
-else:
-    print("⚠️ Tidak ada SESSION_DATA di environment!")
+
+telethon_client = TelegramClient("session", API_ID, API_HASH)
 
 # ========================
-# 🚀 SETUP FLASK & TELETHON
+# 🧠 CEK REAKSI
 # ========================
-app = Flask(__name__)
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-client = TelegramClient("session", API_ID, API_HASH)
+async def check_reactions(chat_id, topic_id, start_hour, end_hour, sesi_nama):
+    try:
+        await telethon_client.connect()
+        if not await telethon_client.is_user_authorized():
+            print("❌ Telethon belum login.")
+            return
+
+        # Konversi waktu UTC → WIB
+        now_utc = datetime.now(timezone.utc)
+        now_wib = now_utc + timedelta(hours=7)
+
+        start_time = now_wib.replace(hour=start_hour, minute=0, second=0, microsecond=0)
+        end_time = now_wib.replace(hour=end_hour, minute=0, second=0, microsecond=0)
+
+        print(f"🕒 Mengecek {sesi_nama}: {start_time.time()}–{end_time.time()} WIB")
+
+        link_messages = []
+        async for msg in telethon_client.iter_messages(chat_id, offset_date=end_time):
+            if msg.date < start_time:
+                break
+            if getattr(msg, "top_msg_id", None) != topic_id:
+                continue
+            if msg.text and re.search(r"https?://", msg.text):
+                link_messages.append(msg)
+
+        all_reactors = set()
+        for msg in link_messages:
+            if msg.reactions:
+                async for u in telethon_client.get_reaction_users(chat_id, msg.id):
+                    if u.username:
+                        all_reactors.add(u.username)
+
+        senders = {m.sender.username for m in link_messages if m.sender and m.sender.username}
+        not_reacted = senders - all_reactors
+
+        total_links = len(link_messages)
+        if not_reacted:
+            belum_text = "\n".join(f"- @{u}" for u in not_reacted)
+        else:
+            belum_text = "✅ Semua sudah melakukan raid."
+
+        hasil = (
+            f"📊 Pengecekan Raid {sesi_nama}\n"
+            f"Total links : {total_links}\n"
+            f"Belum raid :\n{belum_text}"
+        )
+
+        # ✅ kirim pakai bot (bukan Telethon)
+        bot.send_message(chat_id, hasil, message_thread_id=topic_id)
+        print("✅ Laporan dikirim via bot.")
+
+    except Exception as e:
+        print(f"❌ Error check_reactions: {e}")
+
 
 # ========================
-# 🔁 FUNGSIONALITAS TELETHON
-# ========================
-async def start_telethon():
-    print("🚀 Menghubungkan ke Telegram...")
-    await client.start()
-    me = await client.get_me()
-    print(f"✅ Login sebagai {me.first_name} (@{getattr(me, 'username', '-')})")
-
-    # Handler contoh
-    @client.on(events.NewMessage(pattern="/ping"))
-    async def ping_handler(event):
-        await event.reply("🏓 Pong dari Redscale Raid Bot!")
-
-    print("🟢 Telethon aktif dan siap digunakan.")
-    await client.run_until_disconnected()
-
-# ========================
-# ⚙️ FUNGSI CEK SEGERA
-# ========================
-async def check_reactions(chat_id, topic_id, jam_mulai, jam_selesai, nama_sesi):
-    now_utc = datetime.now(timezone.utc)
-    pesan = (
-        f"📢 Pengecekan Raid\n"
-        f"🕐 {nama_sesi}\n"
-        f"⏰ Waktu server UTC: {now_utc.strftime('%H:%M:%S')}\n"
-        f"Total links : 0\n"
-        f"Belum raid : - (belum ada data)"
-    )
-    await client.send_message(chat_id, pesan, reply_to=topic_id)
-    print("📨 Pesan pengecekan terkirim ke thread.")
-
-# ========================
-# 🧠 BACKGROUND RUNNER
-# ========================
-async def background_runner():
-    await start_telethon()
-
-def ensure_telethon_running():
-    if not client.is_connected():
-        loop.create_task(background_runner())
-
-# ========================
-# 🌐 ROUTES FLASK
+# 🌐 ROUTES
 # ========================
 @app.route("/")
 def home():
-    return "🚀 Redscale Raid Bot is live on Render!"
-
-@app.route("/status")
-def status():
-    ensure_telethon_running()
-    return "🟢 Bot status: Telethon connected and Flask running."
+    return "🚀 Redscale Raid Bot aktif!", 200
 
 @app.route("/test")
 def test():
-    ensure_telethon_running()
-    loop.create_task(client.send_message(CHAT_ID, "✅ Test: Bot Redscale aktif!"))
-    return "✅ Pesan test dikirim ke grup."
+    asyncio.run(check_reactions(CHAT_ID, TOPIC_ID_1, 14, 15, "🧪 Test Mode"))
+    return "✅ Test dijalankan!", 200
 
 @app.route("/sesi1")
 def sesi1():
-    ensure_telethon_running()
-    loop.create_task(check_reactions(CHAT_ID, TOPIC_ID_1, 14, 15, "Sesi 1 (14.00–15.00 WIB)"))
-    return "📊 Pemeriksaan sesi 1 dijalankan."
+    asyncio.run(check_reactions(CHAT_ID, TOPIC_ID_1, 14, 15, "🕐 Sesi 1 (14.00–15.00 WIB)"))
+    return "✅ Sesi 1 dijalankan!", 200
+
 
 # ========================
-# 🚦 MAIN ENTRY
+# 🚦 START
 # ========================
 if __name__ == "__main__":
-    print("🔥 Menjalankan Flask server...")
-    loop.create_task(background_runner())
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+    app.run(host="0.0.0.0", port=10000)
