@@ -14,13 +14,12 @@ TOPIC_ID_2 = int(os.getenv("TOPIC_ID_2"))
 TOPIC_ID_3 = int(os.getenv("TOPIC_ID_3"))
 
 # === INIT TELETHON + TELEBOT ===
-telethon_client = TelegramClient("session", API_ID, API_HASH)
+telethon_client = TelegramClient("session", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 bot = TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# Jalankan Telethon 1x saat startup
-loop = asyncio.get_event_loop()
-loop.create_task(telethon_client.start())
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 
 # === LOGIC ===
 async def check_reactions(chat_id, topic_id, start_hour, end_hour, test_mode=False):
@@ -30,9 +29,7 @@ async def check_reactions(chat_id, topic_id, start_hour, end_hour, test_mode=Fal
             message = f"✅ Sesi {start_hour}-{end_hour} selesai, laporan terkirim!"
         else:
             message = f"🧪 Test mode aktif! Koneksi berhasil ke topic {topic_id}."
-
         bot.send_message(chat_id, message, message_thread_id=topic_id)
-        print(f"📨 Message sent to {chat_id} (topic {topic_id})")
     except Exception as e:
         print(f"❌ Error in check_reactions: {e}")
 
