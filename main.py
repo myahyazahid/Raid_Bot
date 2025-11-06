@@ -1,143 +1,107 @@
+import os
+import base64
+import asyncio
+from datetime import datetime, timezone
+from telethon import TelegramClient, events
 from flask import Flask
-from telethon import TelegramClient
-from telebot import TeleBot
-from datetime import datetime, timedelta
-import asyncio, os, re, threading
 
-app = Flask(__name__)
-
-# ==========================
-# 🔧 CONFIG
-# ==========================
-API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
+# ========================
+# 🔧 KONFIGURASI DASAR
+# ========================
+API_ID = int(os.getenv("API_ID", "39993754"))
+API_HASH = os.getenv("API_HASH", "0eea9b16eb5dd10d958f815f58a0e2e5")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = int(os.getenv("CHAT_ID", "-100XXXXXXXXXX"))  # Ganti dengan ID grup kamu
+TOPIC_ID_1 = int(os.getenv("TOPIC_ID_1", "0"))  # Thread ID untuk sesi 1
 
-CHAT_ID = int(os.getenv("CHAT_ID"))
-TOPIC_ID_1 = int(os.getenv("TOPIC_ID_1"))
-TOPIC_ID_2 = int(os.getenv("TOPIC_ID_2"))
-TOPIC_ID_3 = int(os.getenv("TOPIC_ID_3"))
+# ========================
+# 🔐 RESTORE SESSION
+# ========================
+if os.getenv("SESSION_DATA"):
+    print("🔑 Dekode session Telethon dari ENV...")
+    with open("session.session", "wb") as f:
+        f.write(base64.b64decode(os.getenv("SESSION_DATA")))
+else:
+    print("⚠️ Tidak ada SESSION_DATA di environment!")
 
-bot = TeleBot(BOT_TOKEN)
-telethon_client = TelegramClient("/tmp/session", API_ID, API_HASH)
+# ========================
+# 🚀 SETUP FLASK & TELETHON
+# ========================
+app = Flask(__name__)
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+client = TelegramClient("session", API_ID, API_HASH)
 
-# ==========================
-# ⚙️ Event Loop Tunggal
-# ==========================
-_loop = asyncio.new_event_loop()
-
-def loop_runner():
-    asyncio.set_event_loop(_loop)
-    _loop.run_forever()
-
-threading.Thread(target=loop_runner, daemon=True).start()
-
+# ========================
+# 🔁 FUNGSIONALITAS TELETHON
+# ========================
 async def start_telethon():
-    try:
-        if not telethon_client.is_connected():
-            await telethon_client.start(bot_token=BOT_TOKEN)
-        me = await telethon_client.get_me()
-        print(f"✅ Telethon connected as @{getattr(me, 'username', 'bot')} (ID: {me.id})")
-    except Exception as e:
-        print(f"❌ Telethon connect error: {e}")
+    print("🚀 Menghubungkan ke Telegram...")
+    await client.start()
+    me = await client.get_me()
+    print(f"✅ Login sebagai {me.first_name} (@{getattr(me, 'username', '-')})")
 
-def ensure_telethon():
-    asyncio.run_coroutine_threadsafe(start_telethon(), _loop).result()
+    # Handler contoh
+    @client.on(events.NewMessage(pattern="/ping"))
+    async def ping_handler(event):
+        await event.reply("🏓 Pong dari Redscale Raid Bot!")
 
-# Panggil segera setelah app start
-ensure_telethon()
+    print("🟢 Telethon aktif dan siap digunakan.")
+    await client.run_until_disconnected()
 
-# ==========================
-# 🔍 Cek Reaksi
-# ==========================
-async def check_reactions(chat_id, topic_id, start_hour, end_hour, sesi_nama):
-    try:
-        if not telethon_client.is_connected():
-            await telethon_client.connect()
+# ========================
+# ⚙️ FUNGSI CEK SEGERA
+# ========================
+async def check_reactions(chat_id, topic_id, jam_mulai, jam_selesai, nama_sesi):
+    now_utc = datetime.now(timezone.utc)
+    pesan = (
+        f"📢 Pengecekan Raid\n"
+        f"🕐 {nama_sesi}\n"
+        f"⏰ Waktu server UTC: {now_utc.strftime('%H:%M:%S')}\n"
+        f"Total links : 0\n"
+        f"Belum raid : - (belum ada data)"
+    )
+    await client.send_message(chat_id, pesan, reply_to=topic_id)
+    print("📨 Pesan pengecekan terkirim ke thread.")
 
-        now = datetime.utcnow() + timedelta(hours=7)
-        start_time = now.replace(hour=start_hour, minute=0, second=0, microsecond=0)
-        end_time = now.replace(hour=end_hour, minute=0, second=0, microsecond=0)
+# ========================
+# 🧠 BACKGROUND RUNNER
+# ========================
+async def background_runner():
+    await start_telethon()
 
-        print(f"🔍 [{sesi_nama}] {start_hour}:00–{end_hour}:00 WIB")
+def ensure_telethon_running():
+    if not client.is_connected():
+        loop.create_task(background_runner())
 
-        link_messages = []
-        async for msg in telethon_client.iter_messages(chat_id, offset_date=end_time, reverse=True):
-            if msg.date < start_time:
-                break
-            if getattr(msg, "top_msg_id", None) != topic_id:
-                continue
-            if msg.text and re.search(r"https?://", msg.text):
-                link_messages.append(msg)
-
-        all_reactors = set()
-        for msg in link_messages:
-            if msg.reactions:
-                async for u in telethon_client.get_reaction_users(chat_id, msg.id):
-                    if u.username:
-                        all_reactors.add(u.username)
-
-        senders = {m.sender.username for m in link_messages if m.sender and m.sender.username}
-        not_reacted = senders - all_reactors
-        belum_text = "\n".join(f"- @{u}" for u in sorted(not_reacted)) if not_reacted else "✅ Semua sudah melakukan raid."
-
-        msg_text = (
-            f"📊 Pengecekan Raid {sesi_nama}\n"
-            f"Total links: {len(link_messages)}\n"
-            f"Belum raid:\n{belum_text}"
-        )
-
-        await asyncio.to_thread(bot.send_message, chat_id, msg_text, message_thread_id=topic_id)
-        print(f"✅ [{sesi_nama}] report dikirim ke topic {topic_id}")
-    except Exception as e:
-        print(f"❌ [{sesi_nama}] Error: {e}")
-        await asyncio.to_thread(bot.send_message, chat_id, f"❌ Error: {e}", message_thread_id=topic_id)
-
-def run_async(coro):
-    return asyncio.run_coroutine_threadsafe(coro, _loop).result()
-
-# ==========================
-# 🌐 ROUTES
-# ==========================
+# ========================
+# 🌐 ROUTES FLASK
+# ========================
 @app.route("/")
 def home():
-    return "🚀 Raid Bot aktif (WIB, Flask 3+)", 200
+    return "🚀 Redscale Raid Bot is live on Render!"
 
 @app.route("/status")
 def status():
-    try:
-        ensure_telethon()
-        me = run_async(telethon_client.get_me())
-        bot.send_message(CHAT_ID, "✅ /status: bot aktif & bisa kirim pesan")
-        return f"🤖 @{getattr(me, 'username', 'bot')} (ID: {me.id})\n✅ Bot berhasil kirim pesan ke grup.", 200
-    except Exception as e:
-        return f"❌ Error status: {e}", 200
+    ensure_telethon_running()
+    return "🟢 Bot status: Telethon connected and Flask running."
 
 @app.route("/test")
 def test():
-    now = datetime.utcnow() + timedelta(hours=7)
-    start_hour = now.hour
-    end_hour = (start_hour + 1) % 24
-    run_async(check_reactions(CHAT_ID, TOPIC_ID_1, start_hour, end_hour, "🧪 Test Mode"))
-    return f"🧪 Test {start_hour}:00–{end_hour}:00 WIB dijalankan.", 200
+    ensure_telethon_running()
+    loop.create_task(client.send_message(CHAT_ID, "✅ Test: Bot Redscale aktif!"))
+    return "✅ Pesan test dikirim ke grup."
 
 @app.route("/sesi1")
 def sesi1():
-    run_async(check_reactions(CHAT_ID, TOPIC_ID_1, 14, 15, "🕐 Sesi 1 (14.00–15.00 WIB)"))
-    return "✅ Sesi 1 dijalankan.", 200
+    ensure_telethon_running()
+    loop.create_task(check_reactions(CHAT_ID, TOPIC_ID_1, 14, 15, "Sesi 1 (14.00–15.00 WIB)"))
+    return "📊 Pemeriksaan sesi 1 dijalankan."
 
-@app.route("/sesi2")
-def sesi2():
-    run_async(check_reactions(CHAT_ID, TOPIC_ID_2, 17, 18, "🕔 Sesi 2 (17.00–18.00 WIB)"))
-    return "✅ Sesi 2 dijalankan.", 200
-
-@app.route("/sesi3")
-def sesi3():
-    run_async(check_reactions(CHAT_ID, TOPIC_ID_3, 20, 21, "🌙 Sesi 3 (20.00–21.00 WIB)"))
-    return "✅ Sesi 3 dijalankan.", 200
-
-# ==========================
-# 🚀 RUN SERVER
-# ==========================
+# ========================
+# 🚦 MAIN ENTRY
+# ========================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    print("🔥 Menjalankan Flask server...")
+    loop.create_task(background_runner())
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
