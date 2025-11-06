@@ -7,7 +7,7 @@ import asyncio, os, re
 app = Flask(__name__)
 
 # ==========================
-# 🔧 KONFIGURASI
+# 🔧 KONFIG
 # ==========================
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
@@ -24,16 +24,14 @@ telethon_client = TelegramClient("session", API_ID, API_HASH)
 # ==========================
 # 🚀 START TELETHON
 # ==========================
-async def start_telethon():
+async def telethon_start():
     await telethon_client.start(bot_token=BOT_TOKEN)
     print("✅ Telethon connected as bot")
 
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-loop.create_task(start_telethon())
+asyncio.get_event_loop().create_task(telethon_start())
 
 # ==========================
-# 🧩 FUNGSI CEK REAKSI
+# 🧩 CEK REAKSI
 # ==========================
 async def check_reactions(chat_id, topic_id, start_hour, end_hour, sesi_nama):
     try:
@@ -46,10 +44,10 @@ async def check_reactions(chat_id, topic_id, start_hour, end_hour, sesi_nama):
         start_time = now.replace(hour=start_hour, minute=0, second=0, microsecond=0)
         end_time = now.replace(hour=end_hour, minute=0, second=0, microsecond=0)
 
-        print(f"🔍 Mengecek {sesi_nama} | {start_hour}:00–{end_hour}:00 WIB")
+        print(f"🔍 Cek {sesi_nama} {start_hour}:00–{end_hour}:00 WIB")
 
         link_messages = []
-        async for msg in telethon_client.iter_messages(chat_id, offset_date=end_time):
+        async for msg in telethon_client.iter_messages(chat_id, offset_date=end_time, reverse=True):
             if msg.date < start_time:
                 break
             if getattr(msg, "top_msg_id", None) != topic_id:
@@ -68,10 +66,7 @@ async def check_reactions(chat_id, topic_id, start_hour, end_hour, sesi_nama):
         not_reacted = senders - all_reactors
         total_links = len(link_messages)
 
-        if not_reacted:
-            belum_text = "\n".join(f"- @{u}" for u in not_reacted)
-        else:
-            belum_text = "✅ Semua sudah melakukan raid."
+        belum_text = "\n".join(f"- @{u}" for u in not_reacted) if not_reacted else "✅ Semua sudah melakukan raid."
 
         hasil = (
             f"📊 Pengecekan Raid {sesi_nama}\n"
@@ -80,24 +75,23 @@ async def check_reactions(chat_id, topic_id, start_hour, end_hour, sesi_nama):
         )
 
         await asyncio.to_thread(bot.send_message, chat_id, hasil, message_thread_id=topic_id)
-        print(f"✅ Laporan {sesi_nama} dikirim")
+        print(f"✅ Laporan {sesi_nama} dikirim ke topic {topic_id}")
 
     except Exception as e:
         print(f"❌ Error di check_reactions: {e}")
         await asyncio.to_thread(bot.send_message, chat_id, f"❌ Error: {e}")
 
 # ==========================
-# 🧩 CEK STATUS / IZIN BOT
+# 🧩 STATUS BOT
 # ==========================
 @app.route("/status")
-def status():
+async def status():
     try:
         if not telethon_client.is_connected():
-            return "❌ Telethon belum connect.", 200
-        me = loop.run_until_complete(telethon_client.get_me())
+            await telethon_client.connect()
+        me = await telethon_client.get_me()
         bot_info = f"🤖 Bot: @{me.username} (ID: {me.id})"
 
-        # Coba kirim pesan test singkat (tidak di thread)
         try:
             bot.send_message(CHAT_ID, "✅ Bot aktif & bisa kirim pesan (tes /status)")
             status_msg = "✅ Bot berhasil kirim pesan ke grup."
@@ -117,30 +111,33 @@ def home():
 
 @app.route("/test")
 def test():
+    asyncio.create_task(run_check_test())
+    return "🧪 Test dijalankan async!", 200
+
+async def run_check_test():
     now_utc = datetime.utcnow()
     now = now_utc + timedelta(hours=7)
     start_hour = now.hour
     end_hour = start_hour + 1
-    asyncio.run(check_reactions(CHAT_ID, TOPIC_ID_1, start_hour, end_hour, "🧪 Test Mode"))
-    return f"✅ Test dijalankan untuk {start_hour}:00–{end_hour}:00 WIB", 200
+    await check_reactions(CHAT_ID, TOPIC_ID_1, start_hour, end_hour, "🧪 Test Mode")
 
 @app.route("/sesi1")
 def sesi1():
-    asyncio.run(check_reactions(CHAT_ID, TOPIC_ID_1, 14, 15, "🕐 Sesi 1 (14.00–15.00 WIB)"))
+    asyncio.create_task(check_reactions(CHAT_ID, TOPIC_ID_1, 14, 15, "🕐 Sesi 1 (14.00–15.00 WIB)"))
     return "✅ Sesi 1 dijalankan!", 200
 
 @app.route("/sesi2")
 def sesi2():
-    asyncio.run(check_reactions(CHAT_ID, TOPIC_ID_2, 17, 18, "🕔 Sesi 2 (17.00–18.00 WIB)"))
+    asyncio.create_task(check_reactions(CHAT_ID, TOPIC_ID_2, 17, 18, "🕔 Sesi 2 (17.00–18.00 WIB)"))
     return "✅ Sesi 2 dijalankan!", 200
 
 @app.route("/sesi3")
 def sesi3():
-    asyncio.run(check_reactions(CHAT_ID, TOPIC_ID_3, 20, 21, "🌙 Sesi 3 (20.00–21.00 WIB)"))
+    asyncio.create_task(check_reactions(CHAT_ID, TOPIC_ID_3, 20, 21, "🌙 Sesi 3 (20.00–21.00 WIB)"))
     return "✅ Sesi 3 dijalankan!", 200
 
 # ==========================
-# 🚀 START FLASK SERVER
+# 🚀 RUN SERVER
 # ==========================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
