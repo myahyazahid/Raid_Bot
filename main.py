@@ -30,8 +30,8 @@ if os.getenv("SESSION_DATA"):
 # ==========================
 # 🤖 Bots/Clients
 # ==========================
-bot = TeleBot(BOT_TOKEN)                                   # untuk KIRIM pesan (bot admin)
-telethon_client = TelegramClient("session", API_ID, API_HASH)  # untuk BACA pesan/reaksi (akun user)
+bot = TeleBot(BOT_TOKEN)                                   # untuk kirim pesan (bot admin)
+telethon_client = TelegramClient("session", API_ID, API_HASH)  # untuk baca pesan/reaksi (akun user)
 
 # ==========================
 # ⚙️ SINGLE EVENT LOOP (THREAD)
@@ -47,7 +47,7 @@ threading.Thread(target=_loop_runner, daemon=True).start()
 async def _telethon_start():
     # Start sekali saja di loop global
     if not telethon_client.is_connected():
-        await telethon_client.start()  # LOGIN user (bukan bot)
+        await telethon_client.start()
         me = await telethon_client.get_me()
         print(f"✅ Telethon connected as {me.first_name} (@{getattr(me, 'username','-')})")
 
@@ -55,7 +55,7 @@ def run_async(coro):
     """Jalankan coroutine di loop global secara sinkron dari route Flask."""
     return asyncio.run_coroutine_threadsafe(coro, _loop).result()
 
-# Start telethon saat proses naik
+# Start Telethon saat proses naik
 run_async(_telethon_start())
 
 # ==========================
@@ -81,14 +81,12 @@ async def check_reactions(chat_id: int, topic_id: int, start_hour_wib: int, end_
         # Kumpulkan pesan link dalam window & topic
         link_messages = []
         async for msg in telethon_client.iter_messages(chat_id, offset_date=end_utc, reverse=True):
-            async for msg in telethon_client.iter_messages(chat_id, offset_date=end_utc, reverse=True):
-                if msg.date < start_utc:
-                    break
-                if getattr(msg, "top_msg_id", None) != topic_id:
-                    continue
-                if (msg.text and "http" in msg.text) or (msg.media and msg.caption and "http" in msg.caption):
-                    link_messages.append(msg)
-           
+            if msg.date < start_utc:
+                break
+            if getattr(msg, "top_msg_id", None) != topic_id:
+                continue
+            if (msg.text and "http" in msg.text) or (msg.media and msg.caption and "http" in msg.caption):
+                link_messages.append(msg)
 
         # Kumpulkan reaktor
         all_reactors = set()
@@ -136,16 +134,14 @@ def home():
 def status():
     try:
         me = run_async(telethon_client.get_me())
-        # coba kirim ping via bot (silent failure OK)
         try:
             bot.send_message(CHAT_ID, "✅ /status: bot aktif", message_thread_id=TOPIC_ID_1)
-        except Exception as _:
+        except Exception:
             pass
         return f"🟢 Telethon: {me.first_name} (@{getattr(me,'username','-')})", 200
     except Exception as e:
         return f"⚠️ Status error: {e}", 200
 
-# Test: 1 jam terakhir (bisa kapan saja)
 @app.route("/test")
 def test():
     wib_now = datetime.now(timezone.utc) + timedelta(hours=7)
@@ -154,7 +150,6 @@ def test():
     run_async(check_reactions(CHAT_ID, TOPIC_ID_1, start_h, end_h, "🧪 Test Mode (1 jam terakhir)"))
     return "✅ Test dijalankan", 200
 
-# Sesi tetap sesuai WIB
 @app.route("/sesi1")
 def sesi1():
     run_async(check_reactions(CHAT_ID, TOPIC_ID_1, 14, 15, "🕐 Sesi 1 (14.00–15.00 WIB)"))
@@ -171,12 +166,8 @@ def sesi3():
     return "✅ Sesi 3 dijalankan", 200
 
 # ==========================
-# 🚀 RUN (local only; Render jalankan proses ini juga)
+# 🚀 RUN
 # ==========================
 if __name__ == "__main__":
-    from waitress import serve  # opsional, tapi Flask dev server juga oke di Render
+    from waitress import serve
     serve(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
-    # atau:
-    # app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
-
-
