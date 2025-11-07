@@ -86,8 +86,10 @@ async def check_reactions(chat_id: int, topic_id: int, start_hour_wib: int, end_
                 break
             if getattr(msg, "top_msg_id", None) != topic_id:
                 continue
-            if msg.text and re.search(r"https?://", msg.text):
-                link_messages.append(msg)
+            if (msg.text and "http" in msg.text) or (msg.media and msg.caption and "http" in msg.caption):
+    link_messages.append(msg)
+
+           
 
         # Kumpulkan reaktor
         all_reactors = set()
@@ -177,3 +179,4 @@ if __name__ == "__main__":
     serve(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
     # atau:
     # app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+
