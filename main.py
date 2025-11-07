@@ -134,6 +134,19 @@ def status():
     except Exception as e:
         return f"⚠️ Status error: {e}", 200
 
+@app.route("/threads")
+def list_threads():
+    async def get_threads():
+        try:
+            async for dialog in telethon_client.iter_dialogs():
+                if dialog.is_group or dialog.is_channel:
+                    print(f"📁 {dialog.name} | id={dialog.id}")
+            bot.send_message(CHAT_ID, "✅ Daftar thread/log tampil di Render log", message_thread_id=TOPIC_ID_1)
+        except Exception as e:
+            print(f"❌ Error list_threads: {e}")
+    run_async(get_threads())
+    return "🧾 Thread list dikirim ke log Render", 200
+
 @app.route("/test")
 def test():
     now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
@@ -236,3 +249,4 @@ def debug():
 if __name__ == "__main__":
     from waitress import serve
     serve(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+
