@@ -81,14 +81,13 @@ async def check_reactions(chat_id: int, topic_id: int, start_hour_wib: int, end_
         # Kumpulkan pesan link dalam window & topic
         link_messages = []
         async for msg in telethon_client.iter_messages(chat_id, offset_date=end_utc, reverse=True):
-            # msg.date timezone-aware (UTC)
-            if msg.date < start_utc:
-                break
-            if getattr(msg, "top_msg_id", None) != topic_id:
-                continue
-            if (msg.text and "http" in msg.text) or (msg.media and msg.caption and "http" in msg.caption):
-    link_messages.append(msg)
-
+            async for msg in telethon_client.iter_messages(chat_id, offset_date=end_utc, reverse=True):
+                if msg.date < start_utc:
+                    break
+                if getattr(msg, "top_msg_id", None) != topic_id:
+                    continue
+                if (msg.text and "http" in msg.text) or (msg.media and msg.caption and "http" in msg.caption):
+                    link_messages.append(msg)
            
 
         # Kumpulkan reaktor
@@ -179,4 +178,5 @@ if __name__ == "__main__":
     serve(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
     # atau:
     # app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+
 
