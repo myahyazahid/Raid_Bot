@@ -30,8 +30,8 @@ if os.getenv("SESSION_DATA"):
 # ==========================
 # 🤖 Bots/Clients
 # ==========================
-bot = TeleBot(BOT_TOKEN)                                   # untuk KIRIM pesan (bot admin)
-telethon_client = TelegramClient("session", API_ID, API_HASH)  # untuk BACA pesan (akun user)
+bot = TeleBot(BOT_TOKEN)
+telethon_client = TelegramClient("session", API_ID, API_HASH)
 
 # ==========================
 # ⚙️ SINGLE EVENT LOOP (THREAD)
@@ -56,32 +56,44 @@ def run_async(coro):
 run_async(_telethon_start())
 
 # ==========================
-# 🧠 CORE: CEK REAKSI
+# 🧠 CORE: CEK REAKSI (FIXED)
 # ==========================
 async def check_reactions(chat_id: int, topic_id: int, start_hour_wib: int, end_hour_wib: int, sesi_nama: str):
     try:
         if not telethon_client.is_connected():
             await telethon_client.connect()
 
+        tz_wib = timezone(timedelta(hours=7))
         now_utc = datetime.now(timezone.utc)
         today_wib = (now_utc + timedelta(hours=7)).date()
-        tz_wib = timezone(timedelta(hours=7))
 
         start_wib = datetime(today_wib.year, today_wib.month, today_wib.day, start_hour_wib, 0, 0, tzinfo=tz_wib)
-        end_wib   = datetime(today_wib.year, today_wib.month, today_wib.day, end_hour_wib,   0, 0, tzinfo=tz_wib)
+        end_wib   = datetime(today_wib.year, today_wib.month, today_wib.day, end_hour_wib, 0, 0, tzinfo=tz_wib)
         start_utc = start_wib.astimezone(timezone.utc)
         end_utc   = end_wib.astimezone(timezone.utc)
 
-        print(f"🔎 {sesi_nama} | WIB {start_wib.time()}–{end_wib.time()} | UTC {start_utc.time()}–{end_utc.time()} | topic={topic_id}")
+        print(f"🔎 {sesi_nama} | WIB {start_wib.time()}–{end_wib.time()} | topic={topic_id}")
+
+        await telethon_client.get_entity(chat_id)
 
         link_messages = []
-        async for msg in telethon_client.iter_messages(chat_id, offset_date=end_utc, reverse=True):
-            if msg.date < start_utc:
-                break
-            if getattr(msg, "top_msg_id", None) != topic_id:
+        async for msg in telethon_client.iter_messages(chat_id, reverse=True, limit=300):
+            if not (start_utc <= msg.date <= end_utc):
                 continue
-            if (msg.text and "http" in msg.text) or (msg.media and msg.caption and "http" in msg.caption):
+
+            top_id = getattr(msg, "top_msg_id", None)
+            reply_top = getattr(msg, "reply_to_top_id", None)
+            reply_msg = getattr(msg, "reply_to_msg_id", None)
+            if topic_id not in (top_id, reply_top, reply_msg):
+                continue
+
+            text = (msg.text or msg.message or "")
+            caption = getattr(msg, "caption", "")
+            if any("http" in part for part in [text, caption]):
                 link_messages.append(msg)
+                print(f"🔗 [LINK] {msg.id} | {text[:80]}")
+
+        print(f"📊 Total link ditemukan: {len(link_messages)}")
 
         all_reactors = set()
         for m in link_messages:
@@ -92,13 +104,11 @@ async def check_reactions(chat_id: int, topic_id: int, start_hour_wib: int, end_
 
         senders = {m.sender.username for m in link_messages if m.sender and m.sender.username}
         not_reacted = senders - all_reactors
-
-        total_links = len(link_messages)
-        belum_text = "\n".join(f"- @{u}" for u in sorted(not_reacted)) if not_reacted else "✅ Semua sudah melakukan raid."
+        belum_text = "\n".join(f"- @{u}" for u in sorted(not_reacted)) if not_reacted else "✅ Semua sudah react."
 
         hasil = (
             f"📊 Pengecekan Raid {sesi_nama}\n"
-            f"Total links : {total_links}\n"
+            f"Total links : {len(link_messages)}\n"
             f"Belum raid :\n{belum_text}"
         )
 
@@ -126,10 +136,7 @@ def home():
 def status():
     try:
         me = run_async(telethon_client.get_me())
-        try:
-            bot.send_message(CHAT_ID, "✅ /status: bot aktif", message_thread_id=TOPIC_ID_1)
-        except Exception:
-            pass
+        bot.send_message(CHAT_ID, "✅ /status: bot aktif", message_thread_id=TOPIC_ID_1)
         return f"🟢 Telethon: {me.first_name} (@{getattr(me,'username','-')})", 200
     except Exception as e:
         return f"⚠️ Status error: {e}", 200
@@ -141,7 +148,7 @@ def list_threads():
             async for dialog in telethon_client.iter_dialogs():
                 if dialog.is_group or dialog.is_channel:
                     print(f"📁 {dialog.name} | id={dialog.id}")
-            bot.send_message(CHAT_ID, "✅ Daftar thread/log tampil di Render log", message_thread_id=TOPIC_ID_1)
+            bot.send_message(CHAT_ID, "✅ Daftar thread tampil di Render log", message_thread_id=TOPIC_ID_1)
         except Exception as e:
             print(f"❌ Error list_threads: {e}")
     run_async(get_threads())
@@ -154,6 +161,12 @@ def test():
     end_hour = now_wib.hour + 1
     run_async(check_reactions(CHAT_ID, TOPIC_ID_1, start_hour, end_hour, "🧪 Test Semua Link Hari Ini"))
     return "✅ Test dijalankan", 200
+
+@app.route("/test_today")
+def test_today():
+    now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
+    run_async(check_reactions(CHAT_ID, TOPIC_ID_1, 0, now_wib.hour + 1, "🧪 Scan Semua Link Hari Ini"))
+    return "✅ Scan semua link hari ini dijalankan", 200
 
 @app.route("/sesi1")
 def sesi1():
@@ -170,27 +183,17 @@ def sesi3():
     run_async(check_reactions(CHAT_ID, TOPIC_ID_3, 20, 21, "🌙 Sesi 3 (20.00–21.00 WIB)"))
     return "✅ Sesi 3 dijalankan", 200
 
-# ==========================
-# 🧩 DEBUG ROUTE
-# ==========================
 @app.route("/debug")
 def debug():
     async def debug_all():
         try:
-            # 1️⃣ Tes koneksi Telethon
             if not telethon_client.is_connected():
                 await telethon_client.connect()
             me = await telethon_client.get_me()
             print(f"✅ Telethon aktif sebagai {me.first_name} (@{getattr(me,'username','-')})")
 
-            # 2️⃣ Tes kirim pesan via bot
-            try:
-                bot.send_message(CHAT_ID, "✅ Bot test: bisa kirim pesan ke grup.", message_thread_id=TOPIC_ID_1)
-                print("✅ Bot test: pesan terkirim ke thread.")
-            except Exception as e:
-                print(f"❌ Bot gagal kirim pesan: {e}")
+            await telethon_client.get_entity(CHAT_ID)
 
-            # 3️⃣ Ambil semua pesan hari ini di thread target
             now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
             start_of_day_wib = now_wib.replace(hour=0, minute=0, second=0, microsecond=0)
             tz_wib = timezone(timedelta(hours=7))
@@ -200,21 +203,19 @@ def debug():
             print(f"🔎 Mengambil pesan thread {TOPIC_ID_1} antara {start_utc} - {end_utc} (UTC)")
 
             link_messages = []
-            async for msg in telethon_client.iter_messages(CHAT_ID, offset_date=end_utc, reverse=True):
-                if msg.date < start_utc:
-                    break
-                if getattr(msg, "top_msg_id", None) != TOPIC_ID_1:
+            async for msg in telethon_client.iter_messages(CHAT_ID, reverse=True, limit=300):
+                top_id = getattr(msg, "top_msg_id", None)
+                reply_top = getattr(msg, "reply_to_top_id", None)
+                if TOPIC_ID_1 not in (top_id, reply_top):
                     continue
-
-                preview = (msg.text or msg.message or "[no text]")[:80].replace("\n", " ")
-                print(f"[DEBUG] id={msg.id} | date={msg.date} | text={preview}")
-
-                if (msg.text and "http" in msg.text) or (msg.media and msg.caption and "http" in msg.caption):
+                text = (msg.text or msg.message or "")
+                caption = getattr(msg, "caption", "")
+                if any("http" in part for part in [text, caption]):
                     link_messages.append(msg)
+                    print(f"[DEBUG LINK] id={msg.id} | {text[:80]}")
 
             print(f"🔗 Total pesan dengan link: {len(link_messages)}")
 
-            # 4️⃣ Cek reaksi pengguna
             all_reactors = set()
             for m in link_messages:
                 if m.reactions:
@@ -249,4 +250,3 @@ def debug():
 if __name__ == "__main__":
     from waitress import serve
     serve(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
-
