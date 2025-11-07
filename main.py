@@ -144,12 +144,23 @@ def status():
 
 @app.route("/test")
 def test():
-    wib_now = datetime.now(timezone.utc) + timedelta(hours=7)
-    start_h = (wib_now - timedelta(hours=1)).hour
-    end_h   = wib_now.hour
-    run_async(check_reactions(CHAT_ID, TOPIC_ID_1, start_h, end_h, "🧪 Test Mode (1 jam terakhir)"))
-    return "✅ Test dijalankan", 200
+    # Ambil semua link dari hari ini (00:00 WIB sampai sekarang)
+    now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
+    start_of_day_wib = now_wib.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_hour = 0
+    end_hour = now_wib.hour + 1  # sampai jam sekarang
 
+    print(f"🧪 Test mode: ambil semua link dari {start_of_day_wib.date()} (WIB)")
+
+    run_async(check_reactions(
+        CHAT_ID,
+        TOPIC_ID_1,      # thread ID mana yang mau dites
+        start_hour,      # jam mulai 00:00 WIB
+        end_hour,        # jam berakhir: sekarang
+        "🧪 Test Semua Link Hari Ini"
+    ))
+    return "✅ Test dijalankan (cek log & Telegram).", 200
+    
 @app.route("/sesi1")
 def sesi1():
     run_async(check_reactions(CHAT_ID, TOPIC_ID_1, 14, 15, "🕐 Sesi 1 (14.00–15.00 WIB)"))
@@ -171,3 +182,4 @@ def sesi3():
 if __name__ == "__main__":
     from waitress import serve
     serve(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+
