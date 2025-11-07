@@ -56,7 +56,7 @@ def run_async(coro):
 run_async(_telethon_start())
 
 # ==========================
-# 🧠 CORE: CEK REAKSI (FIXED)
+# 🧠 CORE: CEK REAKSI (FULL FIX)
 # ==========================
 async def check_reactions(chat_id: int, topic_id: int, start_hour_wib: int, end_hour_wib: int, sesi_nama: str):
     try:
@@ -77,7 +77,7 @@ async def check_reactions(chat_id: int, topic_id: int, start_hour_wib: int, end_
         await telethon_client.get_entity(chat_id)
 
         link_messages = []
-        async for msg in telethon_client.iter_messages(chat_id, reverse=True, limit=300):
+        async for msg in telethon_client.iter_messages(chat_id, reverse=True, limit=500):
             if not (start_utc <= msg.date <= end_utc):
                 continue
 
@@ -89,18 +89,46 @@ async def check_reactions(chat_id: int, topic_id: int, start_hour_wib: int, end_
 
             text = (msg.text or msg.message or "")
             caption = getattr(msg, "caption", "")
-            if any("http" in part for part in [text, caption]):
+            links = set()
+
+            # 🔗 Ambil semua jenis link (text, caption, hyperlink)
+            if "http" in text:
+                urls = re.findall(r"https?://\S+", text)
+                links.update(urls)
+            if "http" in caption:
+                urls = re.findall(r"https?://\S+", caption)
+                links.update(urls)
+            if msg.entities:
+                for ent in msg.entities:
+                    if hasattr(ent, 'url') and ent.url:
+                        links.add(ent.url)
+
+            if links:
                 link_messages.append(msg)
-                print(f"🔗 [LINK] {msg.id} | {text[:80]}")
+                link_preview = ", ".join(list(links)[:2])
+                print(f"🔗 [LINK] {msg.id} | {link_preview}")
 
         print(f"📊 Total link ditemukan: {len(link_messages)}")
 
+        # 👥 Cek siapa yang kasih reaksi
         all_reactors = set()
         for m in link_messages:
-            if m.reactions:
-                async for u in telethon_client.get_reaction_users(chat_id, m.id):
-                    if u.username:
-                        all_reactors.add(u.username)
+            try:
+                if hasattr(telethon_client, "get_reaction_users"):
+                    async for u in telethon_client.get_reaction_users(chat_id, m.id):
+                        if u.username:
+                            all_reactors.add(u.username)
+                else:
+                    # fallback lama (jika Telethon lawas)
+                    if hasattr(m, "reactions") and hasattr(m.reactions, "recent_reactions"):
+                        for rr in m.reactions.recent_reactions:
+                            user = getattr(rr, "peer_id", None)
+                            if hasattr(user, "user_id"):
+                                u = await telethon_client.get_entity(user.user_id)
+                                if u.username:
+                                    all_reactors.add(u.username)
+            except Exception as err:
+                print(f"⚠️ Gagal ambil reaksi di msg {m.id}: {err}")
 
         senders = {m.sender.username for m in link_messages if m.sender and m.sender.username}
         not_reacted = senders - all_reactors
@@ -154,14 +182,6 @@ def list_threads():
     run_async(get_threads())
     return "🧾 Thread list dikirim ke log Render", 200
 
-@app.route("/test")
-def test():
-    now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
-    start_hour = 0
-    end_hour = now_wib.hour + 1
-    run_async(check_reactions(CHAT_ID, TOPIC_ID_1, start_hour, end_hour, "🧪 Test Semua Link Hari Ini"))
-    return "✅ Test dijalankan", 200
-
 @app.route("/test_today")
 def test_today():
     now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
@@ -203,33 +223,35 @@ def debug():
             print(f"🔎 Mengambil pesan thread {TOPIC_ID_1} antara {start_utc} - {end_utc} (UTC)")
 
             link_messages = []
-            async for msg in telethon_client.iter_messages(CHAT_ID, reverse=True, limit=300):
+            async for msg in telethon_client.iter_messages(CHAT_ID, reverse=True, limit=500):
                 top_id = getattr(msg, "top_msg_id", None)
                 reply_top = getattr(msg, "reply_to_top_id", None)
                 if TOPIC_ID_1 not in (top_id, reply_top):
                     continue
                 text = (msg.text or msg.message or "")
                 caption = getattr(msg, "caption", "")
-                if any("http" in part for part in [text, caption]):
+                links = set()
+                if "http" in text:
+                    urls = re.findall(r"https?://\S+", text)
+                    links.update(urls)
+                if "http" in caption:
+                    urls = re.findall(r"https?://\S+", caption)
+                    links.update(urls)
+                if msg.entities:
+                    for ent in msg.entities:
+                        if hasattr(ent, 'url') and ent.url:
+                            links.add(ent.url)
+                if links:
                     link_messages.append(msg)
-                    print(f"[DEBUG LINK] id={msg.id} | {text[:80]}")
+                    print(f"[DEBUG LINK] id={msg.id} | {', '.join(list(links)[:2])}")
 
             print(f"🔗 Total pesan dengan link: {len(link_messages)}")
-
-            all_reactors = set()
-            for m in link_messages:
-                if m.reactions:
-                    async for u in telethon_client.get_reaction_users(CHAT_ID, m.id):
-                        if u.username:
-                            all_reactors.add(u.username)
-            print(f"👥 Total pengguna kasih reaksi: {len(all_reactors)}")
 
             hasil = (
                 f"🧩 Debug Report\n"
                 f"Telethon: {me.first_name}\n"
                 f"Thread ID: {TOPIC_ID_1}\n"
-                f"Total link ditemukan: {len(link_messages)}\n"
-                f"Total pengguna kasih reaksi: {len(all_reactors)}"
+                f"Total link ditemukan: {len(link_messages)}"
             )
             await asyncio.to_thread(bot.send_message, CHAT_ID, hasil, message_thread_id=TOPIC_ID_1)
             print("✅ Debug report dikirim ke Telegram.")
