@@ -185,7 +185,7 @@ def list_threads():
 @app.route("/test_today")
 def test_today():
     now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
-    run_async(check_reactions(CHAT_ID, TOPIC_ID_2, 0, now_wib.hour + 1, "🧪 Scan Semua Link Hari Ini"))
+    run_async(check_reactions(CHAT_ID, TOPIC_ID_3, 0, now_wib.hour + 1, "🧪 Scan Semua Link Hari Ini"))
     return "✅ Scan semua link hari ini dijalankan", 200
 
 @app.route("/sesi1")
@@ -272,4 +272,5 @@ def debug():
 if __name__ == "__main__":
     from waitress import serve
     serve(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+
 
